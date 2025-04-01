@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2023 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -12,6 +12,7 @@ declare (strict_types = 1);
 
 namespace think;
 
+use Composer\InstalledVersions;
 use think\event\AppInit;
 use think\helper\Str;
 use think\initializer\BootService;
@@ -35,17 +36,26 @@ use think\initializer\RegisterService;
  * @property Cookie     $cookie
  * @property Session    $session
  * @property Validate   $validate
- * @property Filesystem $filesystem
  */
 class App extends Container
 {
-    const VERSION = '6.0.8';
+    /**
+     * 核心框架版本 
+     * @deprecated 已经废弃 请改用version()方法
+     */    
+    const VERSION = '8.0.0';
 
     /**
      * 应用调试模式
      * @var bool
      */
     protected $appDebug = false;
+
+    /**
+     * 公共环境变量标识
+     * @var string
+     */
+    protected $baseEnvName = '';
 
     /**
      * 环境变量标识
@@ -152,7 +162,6 @@ class App extends Container
         'session'                 => Session::class,
         'validate'                => Validate::class,
         'view'                    => View::class,
-        'filesystem'              => Filesystem::class,
         'think\DbManager'         => Db::class,
         'think\LogManager'        => Log::class,
         'think\CacheManager'      => Cache::class,
@@ -168,7 +177,7 @@ class App extends Container
      */
     public function __construct(string $rootPath = '')
     {
-        $this->thinkPath   = dirname(__DIR__) . DIRECTORY_SEPARATOR;
+        $this->thinkPath   = realpath(dirname(__DIR__)) . DIRECTORY_SEPARATOR;
         $this->rootPath    = $rootPath ? rtrim($rootPath, DIRECTORY_SEPARATOR) . DIRECTORY_SEPARATOR : $this->getDefaultRootPath();
         $this->appPath     = $this->rootPath . 'app' . DIRECTORY_SEPARATOR;
         $this->runtimePath = $this->rootPath . 'runtime' . DIRECTORY_SEPARATOR;
@@ -190,7 +199,7 @@ class App extends Container
      * @param bool           $force   强制重新注册
      * @return Service|null
      */
-    public function register($service, bool $force = false)
+    public function register(Service | string $service, bool $force = false)
     {
         $registered = $this->getService($service);
 
@@ -219,7 +228,7 @@ class App extends Container
      * @param Service $service 服务
      * @return mixed
      */
-    public function bootService($service)
+    public function bootService(Service $service)
     {
         if (method_exists($service, 'boot')) {
             return $this->invoke([$service, 'boot']);
@@ -231,9 +240,9 @@ class App extends Container
      * @param string|Service $service
      * @return Service|null
      */
-    public function getService($service)
+    public function getService(Service | string $service): ?Service
     {
-        $name = is_string($service) ? $service : get_class($service);
+        $name = is_string($service) ? $service : $service::class;
         return array_values(array_filter($this->services, function ($value) use ($name) {
             return $value instanceof $name;
         }, ARRAY_FILTER_USE_BOTH))[0] ?? null;
@@ -284,6 +293,18 @@ class App extends Container
     }
 
     /**
+     * 设置公共环境变量标识
+     * @access public
+     * @param string $name 环境标识
+     * @return $this
+     */
+    public function setBaseEnvName(string $name)
+    {
+        $this->baseEnvName = $name;
+        return $this;
+    }
+
+    /**
      * 设置环境变量标识
      * @access public
      * @param string $name 环境标识
@@ -302,7 +323,7 @@ class App extends Container
      */
     public function version(): string
     {
-        return static::VERSION;
+        return ltrim(InstalledVersions::getPrettyVersion('topthink/framework'), 'v');
     }
 
     /**
@@ -441,6 +462,12 @@ class App extends Container
         $this->beginTime = microtime(true);
         $this->beginMem  = memory_get_usage();
 
+        // 加载环境变量
+        if ($this->baseEnvName) {
+            $this->loadEnv($this->baseEnvName);
+        }
+
+        $this->envName = $this->envName ?: (string) $this->env->get('env_name', '');
         $this->loadEnv($this->envName);
 
         $this->configExt = $this->env->get('config_ext', '.php');
@@ -450,13 +477,8 @@ class App extends Container
         // 加载全局初始化文件
         $this->load();
 
-        // 加载框架默认语言包
-        $langSet = $this->lang->defaultLangSet();
-
-        $this->lang->load($this->thinkPath . 'lang' . DIRECTORY_SEPARATOR . $langSet . '.php');
-
         // 加载应用默认语言包
-        $this->loadLangPack($langSet);
+        $this->loadLangPack();
 
         // 监听AppInit
         $this->event->trigger(AppInit::class);
@@ -482,25 +504,13 @@ class App extends Container
 
     /**
      * 加载语言包
-     * @param string $langset 语言
      * @return void
      */
-    public function loadLangPack($langset)
+    public function loadLangPack(): void
     {
-        if (empty($langset)) {
-            return;
-        }
-
-        // 加载系统语言包
-        $files = glob($this->appPath . 'lang' . DIRECTORY_SEPARATOR . $langset . '.*');
-        $this->lang->load($files);
-
-        // 加载扩展（自定义）语言包
-        $list = $this->config->get('lang.extend_list', []);
-
-        if (isset($list[$langset])) {
-            $this->lang->load($list[$langset]);
-        }
+        // 加载默认语言包
+        $langSet = $this->lang->defaultLangSet();
+        $this->lang->switchLangSet($langSet);
     }
 
     /**
@@ -564,6 +574,9 @@ class App extends Container
         // 应用调试模式
         if (!$this->appDebug) {
             $this->appDebug = $this->env->get('app_debug') ? true : false;
+        }
+
+        if (!$this->appDebug) {
             ini_set('display_errors', 'Off');
         }
 
@@ -597,7 +610,7 @@ class App extends Container
 
         if (isset($event['subscribe'])) {
             $this->event->subscribe($event['subscribe']);
-        }
+        }      
     }
 
     /**
@@ -635,5 +648,4 @@ class App extends Container
     {
         return dirname($this->thinkPath, 4) . DIRECTORY_SEPARATOR;
     }
-
 }

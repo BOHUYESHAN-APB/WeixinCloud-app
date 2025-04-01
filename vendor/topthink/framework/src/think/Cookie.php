@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2023 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -46,19 +46,12 @@ class Cookie
     protected $cookie = [];
 
     /**
-     * 当前Request对象
-     * @var Request
-     */
-    protected $request;
-
-    /**
      * 构造方法
      * @access public
      */
-    public function __construct(Request $request, array $config = [])
+    public function __construct(protected Request $request, array $config = [])
     {
-        $this->request = $request;
-        $this->config  = array_merge($this->config, array_change_key_case($config));
+        $this->config = array_merge($this->config, array_change_key_case($config));
     }
 
     public static function __make(Request $request, Config $config)
@@ -118,6 +111,7 @@ class Cookie
         }
 
         $this->setCookie($name, $value, $expire, $config);
+        $this->request->setCookie($name, $value);
     }
 
     /**
@@ -158,11 +152,14 @@ class Cookie
      * Cookie删除
      * @access public
      * @param  string $name cookie名称
+     * @param  array  $options cookie参数
      * @return void
      */
-    public function delete(string $name): void
+    public function delete(string $name, array $options = []): void
     {
-        $this->setCookie($name, '', time() - 3600, $this->config);
+        $config = array_merge($this->config, array_change_key_case($options));
+        $this->setCookie($name, '', time() - 3600, $config);
+        $this->request->setCookie($name, null);
     }
 
     /**
@@ -213,18 +210,13 @@ class Cookie
      */
     protected function saveCookie(string $name, string $value, int $expire, string $path, string $domain, bool $secure, bool $httponly, string $samesite): void
     {
-        if (version_compare(PHP_VERSION, '7.3.0', '>=')) {
-            setcookie($name, $value, [
-                'expires'  => $expire,
-                'path'     => $path,
-                'domain'   => $domain,
-                'secure'   => $secure,
-                'httponly' => $httponly,
-                'samesite' => $samesite,
-            ]);
-        } else {
-            setcookie($name, $value, $expire, $path, $domain, $secure, $httponly);
-        }
+        setcookie($name, $value, [
+            'expires'  => $expire,
+            'path'     => $path,
+            'domain'   => $domain,
+            'secure'   => $secure,
+            'httponly' => $httponly,
+            'samesite' => $samesite,
+        ]);
     }
-
 }

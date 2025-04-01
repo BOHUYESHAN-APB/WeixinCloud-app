@@ -40,7 +40,7 @@ class Route extends Command
         $output->writeln('<info>Succeed!</info>');
     }
 
-    protected function buildRouteCache(string $dir = null): string
+    protected function buildRouteCache(?string $dir = null): string
     {
         $this->app->route->clear();
         $this->app->route->lazy(false);
@@ -51,7 +51,7 @@ class Route extends Command
         $files = is_dir($path) ? scandir($path) : [];
 
         foreach ($files as $file) {
-            if (strpos($file, '.php')) {
+            if (str_contains($file, '.php')) {
                 include $path . $file;
             }
         }

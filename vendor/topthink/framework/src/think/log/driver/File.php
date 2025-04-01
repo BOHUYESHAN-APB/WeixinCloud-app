@@ -139,7 +139,9 @@ class File implements LogHandlerInterface
 
             try {
                 if (count($files) > $this->config['max_files']) {
+                    set_error_handler(function ($errno, $errstr, $errfile, $errline) {});
                     unlink($files[0]);
+                    restore_error_handler();
                 }
             } catch (\Exception $e) {
                 //
@@ -196,7 +198,7 @@ class File implements LogHandlerInterface
     {
         if (is_file($destination) && floor($this->config['file_size']) <= filesize($destination)) {
             try {
-                rename($destination, dirname($destination) . DIRECTORY_SEPARATOR . time() . '-' . basename($destination));
+                rename($destination, dirname($destination) . DIRECTORY_SEPARATOR . basename($destination, '.log') . '-' . time() . '.log');
             } catch (\Exception $e) {
                 //
             }

@@ -1,32 +1,40 @@
 {
-    "name": "topthink/think",
-    "description": "the new thinkphp framework",
+    "name": "shopxo/shopxo",
+    "description": "ShopXO domestic leading enterprise-class B2C free open source e-commerce system!",
     "type": "project",
     "keywords": [
-        "framework",
+        "shop",
+        "shopxo",
+        "b2c",
+        "mall",
+        "商城",
+        "开源商城",
+        "小程序",
         "thinkphp",
         "ORM"
     ],
-    "homepage": "http://thinkphp.cn/",
-    "license": "Apache-2.0",
+    "homepage": "http://shopxo.net/",
+    "license": "MIT",
     "authors": [
         {
-            "name": "liu21st",
-            "email": "liu21st@gmail.com"
-        },
-        {
-            "name": "yunwuxin",
-            "email": "448901948@qq.com"
-        }        
+            "name": "Devil",
+            "email": "fuxiang.gong@qq.com"
+        }       
     ],
     "require": {
-        "php": "^7.2",
-        "topthink/framework": "^6.0.0",
-        "topthink/think-orm": "^2.0"
+        "php": ">=8.0.0",
+        "topthink/framework": "*",
+        "topthink/think-orm": "*",
+        "topthink/think-multi-app": "*",
+        "topthink/think-view": "*",
+        "phpoffice/phpspreadsheet": "^1.4",
+        "overtrue/pinyin": "*",
+        "picqer/php-barcode-generator": "*",
+        "phpmailer/phpmailer": "*"
     },
     "require-dev": {
-        "symfony/var-dumper": "^4.2",
-        "topthink/think-trace":"^1.0"
+        "symfony/var-dumper": "*",
+        "topthink/think-trace":"*"
     },
     "autoload": {
         "psr-4": {

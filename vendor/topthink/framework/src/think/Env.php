@@ -2,13 +2,13 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2023 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
 // | Author: liu21st <liu21st@gmail.com>
 // +----------------------------------------------------------------------
-declare (strict_types = 1);
+declare(strict_types=1);
 
 namespace think;
 
@@ -26,6 +26,17 @@ class Env implements ArrayAccess
      */
     protected $data = [];
 
+    /**
+     * 数据转换映射
+     * @var array
+     */
+    protected $convert = [
+        'true'  => true,
+        'false' => false,
+        'off'   => false,
+        'on'    => true,
+    ];
+
     public function __construct()
     {
         $this->data = $_ENV;
@@ -39,7 +50,7 @@ class Env implements ArrayAccess
      */
     public function load(string $file): void
     {
-        $env = parse_ini_file($file, true) ?: [];
+        $env = parse_ini_file($file, true, INI_SCANNER_RAW) ?: [];
         $this->set($env);
     }
 
@@ -50,16 +61,21 @@ class Env implements ArrayAccess
      * @param mixed  $default 默认值
      * @return mixed
      */
-    public function get(string $name = null, $default = null)
+    public function get(?string $name = null, $default = null)
     {
         if (is_null($name)) {
             return $this->data;
         }
 
         $name = strtoupper(str_replace('.', '_', $name));
-
         if (isset($this->data[$name])) {
-            return $this->data[$name];
+            $result = $this->data[$name];
+
+            if (is_string($result) && isset($this->convert[$result])) {
+                return $this->convert[$result];
+            }
+
+            return $result;
         }
 
         return $this->getEnv($name, $default);
@@ -73,10 +89,8 @@ class Env implements ArrayAccess
             return $default;
         }
 
-        if ('false' === $result) {
-            $result = false;
-        } elseif ('true' === $result) {
-            $result = true;
+        if (isset($this->convert[$result])) {
+            $result = $this->convert[$result];
         }
 
         if (!isset($this->data[$name])) {
@@ -101,7 +115,11 @@ class Env implements ArrayAccess
             foreach ($env as $key => $val) {
                 if (is_array($val)) {
                     foreach ($val as $k => $v) {
-                        $this->data[$key . '_' . strtoupper($k)] = $v;
+                        if (is_string($k)) {
+                            $this->data[$key . '_' . strtoupper($k)] = $v;
+                        } else {
+                            $this->data[$key][$k] = $v;
+                        }
                     }
                 } else {
                     $this->data[$key] = $val;
@@ -159,22 +177,22 @@ class Env implements ArrayAccess
     }
 
     // ArrayAccess
-    public function offsetSet($name, $value): void
+    public function offsetSet(mixed $name, mixed $value): void
     {
         $this->set($name, $value);
     }
 
-    public function offsetExists($name): bool
+    public function offsetExists(mixed $name): bool
     {
         return $this->__isset($name);
     }
 
-    public function offsetUnset($name)
+    public function offsetUnset(mixed $name): void
     {
         throw new Exception('not support: unset');
     }
 
-    public function offsetGet($name)
+    public function offsetGet(mixed $name): mixed
     {
         return $this->get($name);
     }

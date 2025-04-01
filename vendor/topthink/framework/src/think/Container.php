@@ -2,7 +2,7 @@
 // +----------------------------------------------------------------------
 // | ThinkPHP [ WE CAN DO IT JUST THINK ]
 // +----------------------------------------------------------------------
-// | Copyright (c) 2006~2021 http://thinkphp.cn All rights reserved.
+// | Copyright (c) 2006~2023 http://thinkphp.cn All rights reserved.
 // +----------------------------------------------------------------------
 // | Licensed ( http://www.apache.org/licenses/LICENSE-2.0 )
 // +----------------------------------------------------------------------
@@ -24,9 +24,12 @@ use ReflectionException;
 use ReflectionFunction;
 use ReflectionFunctionAbstract;
 use ReflectionMethod;
+use ReflectionNamedType;
+use ReflectionParameter;
 use think\exception\ClassNotFoundException;
 use think\exception\FuncNotFoundException;
 use think\helper\Str;
+use Traversable;
 
 /**
  * 容器管理类 支持PSR-11
@@ -93,7 +96,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
      * @param Closure|null   $callback
      * @return void
      */
-    public function resolving($abstract, Closure $callback = null): void
+    public function resolving(string|Closure $abstract, ?Closure $callback = null): void
     {
         if ($abstract instanceof Closure) {
             $this->invokeCallback['*'][] = $abstract;
@@ -107,11 +110,11 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
 
     /**
      * 获取容器中的对象实例 不存在则创建
-     * @access public
-     * @param string     $abstract    类名或者标识
-     * @param array|true $vars        变量
-     * @param bool       $newInstance 是否每次创建新的实例
-     * @return object
+     * @template T
+     * @param string|class-string<T> $abstract    类名或者标识
+     * @param array                  $vars        变量
+     * @param bool                   $newInstance 是否每次创建新的实例
+     * @return T|object
      */
     public static function pull(string $abstract, array $vars = [], bool $newInstance = false)
     {
@@ -120,11 +123,11 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
 
     /**
      * 获取容器中的对象实例
-     * @access public
-     * @param string $abstract 类名或者标识
-     * @return object
+     * @template T
+     * @param string|class-string<T> $abstract 类名或者标识
+     * @return T|object
      */
-    public function get($abstract)
+    public function get(string $abstract)
     {
         if ($this->has($abstract)) {
             return $this->make($abstract);
@@ -140,7 +143,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
      * @param mixed        $concrete 要绑定的类、闭包或者实例
      * @return $this
      */
-    public function bind($abstract, $concrete = null)
+    public function bind(string|array $abstract, $concrete = null)
     {
         if (is_array($abstract)) {
             foreach ($abstract as $key => $val) {
@@ -162,7 +165,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
 
     /**
      * 根据别名获取真实类名
-     * @param  string $abstract
+     * @param string $abstract
      * @return string
      */
     public function getAlias(string $abstract): string
@@ -211,7 +214,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
      * @param string $name 类名或者标识
      * @return bool
      */
-    public function has($name): bool
+    public function has(string $name): bool
     {
         return $this->bound($name);
     }
@@ -231,11 +234,11 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
 
     /**
      * 创建类的实例 已经存在则直接获取
-     * @access public
-     * @param string $abstract    类名或者标识
-     * @param array  $vars        变量
-     * @param bool   $newInstance 是否每次创建新的实例
-     * @return mixed
+     * @template T
+     * @param string|class-string<T> $abstract    类名或者标识
+     * @param array                  $vars        变量
+     * @param bool                   $newInstance 是否每次创建新的实例
+     * @return T|object
      */
     public function make(string $abstract, array $vars = [], bool $newInstance = false)
     {
@@ -251,6 +254,8 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
             $object = $this->invokeClass($abstract, $vars);
         }
 
+        $this->invokeAfter($abstract, $object);
+
         if (!$newInstance) {
             $this->instances[$abstract] = $object;
         }
@@ -264,7 +269,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
      * @param string $name 类名或者标识
      * @return void
      */
-    public function delete($name)
+    public function delete(string $name)
     {
         $name = $this->getAlias($name);
 
@@ -280,7 +285,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
      * @param array          $vars     参数
      * @return mixed
      */
-    public function invokeFunction($function, array $vars = [])
+    public function invokeFunction(string|Closure $function, array $vars = [])
     {
         try {
             $reflect = new ReflectionFunction($function);
@@ -315,7 +320,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
         try {
             $reflect = new ReflectionMethod($class, $method);
         } catch (ReflectionException $e) {
-            $class = is_object($class) ? get_class($class) : $class;
+            $class = is_object($class) ? $class::class : $class;
             throw new FuncNotFoundException('method not exists: ' . $class . '::' . $method . '()', "{$class}::{$method}", $e);
         }
 
@@ -355,7 +360,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
     {
         if ($callable instanceof Closure) {
             return $this->invokeFunction($callable, $vars);
-        } elseif (is_string($callable) && false === strpos($callable, '::')) {
+        } elseif (is_string($callable) && !str_contains($callable, '::')) {
             return $this->invokeFunction($callable, $vars);
         } else {
             return $this->invokeMethod($callable, $vars, $accessible);
@@ -380,10 +385,8 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
         if ($reflect->hasMethod('__make')) {
             $method = $reflect->getMethod('__make');
             if ($method->isPublic() && $method->isStatic()) {
-                $args   = $this->bindParams($method, $vars);
-                $object = $method->invokeArgs(null, $args);
-                $this->invokeAfter($class, $object);
-                return $object;
+                $args = $this->bindParams($method, $vars);
+                return $method->invokeArgs(null, $args);
             }
         }
 
@@ -391,11 +394,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
 
         $args = $constructor ? $this->bindParams($constructor, $vars) : [];
 
-        $object = $reflect->newInstanceArgs($args);
-
-        $this->invokeAfter($class, $object);
-
-        return $object;
+        return $reflect->newInstanceArgs($args);
     }
 
     /**
@@ -434,8 +433,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
         }
 
         // 判断数组类型 数字数组时按顺序绑定参数
-        reset($vars);
-        $type   = key($vars) === 0 ? 1 : 0;
+        $type   = array_is_list($vars) ? 1 : 0;
         $params = $reflect->getParameters();
         $args   = [];
 
@@ -444,8 +442,10 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
             $lowerName      = Str::snake($name);
             $reflectionType = $param->getType();
 
-            if ($reflectionType && $reflectionType->isBuiltin() === false) {
-                $args[] = $this->getObjectParam($reflectionType->getName(), $vars);
+            if ($param->isVariadic()) {
+                return array_merge($args, array_values($vars));
+            } elseif ($reflectionType && $reflectionType instanceof ReflectionNamedType && $reflectionType->isBuiltin() === false) {
+                $args[] = $this->getObjectParam($reflectionType->getName(), $vars, $param);
             } elseif (1 == $type && !empty($vars)) {
                 $args[] = array_shift($vars);
             } elseif (0 == $type && array_key_exists($name, $vars)) {
@@ -473,7 +473,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
      */
     public static function factory(string $name, string $namespace = '', ...$args)
     {
-        $class = false !== strpos($name, '\\') ? $name : $namespace . ucwords($name);
+        $class = str_contains($name, '\\') ? $name : $namespace . ucwords($name);
 
         return Container::getInstance()->invokeClass($class, $args);
     }
@@ -481,11 +481,12 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
     /**
      * 获取对象类型的参数值
      * @access protected
-     * @param string $className 类名
-     * @param array  $vars      参数
+     * @param string              $className 类名
+     * @param array               $vars      参数
+     * @param ReflectionParameter $param
      * @return mixed
      */
-    protected function getObjectParam(string $className, array &$vars)
+    protected function getObjectParam(string $className, array &$vars, ReflectionParameter $param)
     {
         $array = $vars;
         $value = array_shift($array);
@@ -494,7 +495,7 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
             $result = $value;
             array_shift($vars);
         } else {
-            $result = $this->make($className);
+            $result = $param->isDefaultValueAvailable() ? $param->getDefaultValue() : $this->make($className);
         }
 
         return $result;
@@ -520,34 +521,34 @@ class Container implements ContainerInterface, ArrayAccess, IteratorAggregate, C
         $this->delete($name);
     }
 
-    public function offsetExists($key)
+    public function offsetExists(mixed $key): bool
     {
         return $this->exists($key);
     }
 
-    public function offsetGet($key)
+    public function offsetGet(mixed $key): mixed
     {
         return $this->make($key);
     }
 
-    public function offsetSet($key, $value)
+    public function offsetSet(mixed $key, mixed $value): void
     {
         $this->bind($key, $value);
     }
 
-    public function offsetUnset($key)
+    public function offsetUnset(mixed $key): void
     {
         $this->delete($key);
     }
 
     //Countable
-    public function count()
+    public function count(): int
     {
         return count($this->instances);
     }
 
     //IteratorAggregate
-    public function getIterator()
+    public function getIterator(): Traversable
     {
         return new ArrayIterator($this->instances);
     }
